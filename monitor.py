@@ -73,7 +73,8 @@ def run():
                     title, link = post_data.split("|")
                     print(f"✨ 새로운 글 발견: {title}")
                     
-                    msg = f"📢 [광운대 새 공지]\n{title}\n\n{link}"
+                   
+                    msg = f"🔔 [광운대 공지 알림]\n\n 제목: {title}\n\n🔗 링크: {link}"
                     send_telegram(msg)
                     new_found_count += 1
         else:
