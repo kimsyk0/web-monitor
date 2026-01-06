@@ -2,10 +2,11 @@ import os
 import requests
 from playwright.sync_api import sync_playwright
 
-# ▼▼▼ 여기만 수정하면 됩니다 ▼▼▼
-TARGET_URL = "https://www.kw.ac.kr/ko/life/notice.jsp"  # 감시할 사이트 주소
-SELECTOR = ".board-list-box tbody tr:nth-child(1) .title-comm a"            # 감시할 요소 (구글 로고)
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+# ▼▼▼ 설정 ▼▼▼
+TARGET_URL = "https://www.kw.ac.kr/ko/life/notice.jsp"
+# 선택자를 조금 더 넓게 잡아서 오류 확률을 줄입니다.
+SELECTOR = ".board-list-box .title-comm a" 
+# ▲▲▲▲▲▲▲▲▲▲
 
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
@@ -20,39 +21,52 @@ def send_telegram(msg):
 
 def run():
     with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
+        # 1. 브라우저를 띄울 때 "사람인 척" 하는 설정 추가
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            viewport={"width": 1920, "height": 1080} # PC 화면 크기로 고정
+        )
+        page = context.new_page()
+        
         try:
+            print(f"접속 시도: {TARGET_URL}")
             page.goto(TARGET_URL)
-            page.wait_for_selector(SELECTOR, timeout=10000)
             
-            # 요소의 텍스트가 없으면(이미지 등) 속성값이라도 가져옴
-            element = page.locator(SELECTOR)
-            current_data = element.inner_text().strip()
-            if not current_data: 
-                # 텍스트가 없으면 alt 태그나 src 등을 가져와서 비교
-                current_data = element.get_attribute("alt") or "이미지/요소 있음"
+            # 로딩 시간을 10초 -> 30초로 늘려줍니다
+            page.wait_for_selector(SELECTOR, timeout=30000)
+            
+            # 가장 위에 있는 글(첫번째)만 가져옵니다
+            element = page.locator(SELECTOR).first
+            
+            current_title = element.inner_text().strip()
+            link_suffix = element.get_attribute("href")
+            full_link = f"https://www.kw.ac.kr{link_suffix}" if link_suffix else TARGET_URL
+            
+            print(f"가져온 제목: {current_title}")
 
-            print(f"현재 데이터: {current_data}")
-
-            try:
+            # 파일 저장/비교 로직
+            last_title = "NONE"
+            if os.path.exists("data.txt"):
                 with open("data.txt", "r", encoding="utf-8") as f:
-                    last_data = f.read().strip()
-            except FileNotFoundError:
-                last_data = "NONE"
+                    last_title = f.read().strip()
 
-            if last_data != current_data:
-                msg = f"🔔 [변경 감지!]\n사이트: {TARGET_URL}\n\n내용이 변경되었습니다."
-                print(msg)
+            if last_title != current_title:
+                print("✨ 새로운 공지 발견! 메시지 전송 중...")
+                msg = f"📢 [광운대 공지]\n{current_title}\n\n{full_link}"
                 send_telegram(msg)
                 
                 with open("data.txt", "w", encoding="utf-8") as f:
-                    f.write(current_data)
+                    f.write(current_title)
             else:
-                print("변경 사항 없음")
+                print("변경 사항 없음 (정상 작동)")
 
         except Exception as e:
-            print(f"에러: {e}")
+            print(f"❌ 오류 발생: {e}")
+            # 오류가 나면 나한테 알려주도록 설정 (테스트용)
+            send_telegram(f"봇 오류 발생: {e}")
+            raise e # GitHub Actions에서 빨간 X가 뜨도록 강제로 에러 발생시킴
+        
         finally:
             browser.close()
 
