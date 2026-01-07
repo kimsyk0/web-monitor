@@ -77,7 +77,7 @@ def run():
         if new_posts_to_notify:
             print(f"✨ 총 {len(new_posts_to_notify)}개의 새 고정 공지 발견!")
             for title, link in new_posts_to_notify:
-                msg = f"🔔[새로운 공지]\n\n 제목: {title}\n\n🔗 링크: {link}"
+                msg = f"🔔 {title}\n\n🔗 링크: {link}"
                 send_telegram(msg)
         else:
             print("변경 사항 없음")
