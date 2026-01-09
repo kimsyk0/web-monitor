@@ -21,17 +21,23 @@ TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 def parse_date(date_str, current_year):
-    # 괄호 및 불필요한 공백 제거
+    # 1. 괄호 및 요일 제거 (02.02(월) -> 02.02)
     clean_str = re.sub(r'\([가-힣]\)', '', date_str).strip()
     
+    # 2. 물결표(~), 줄표(-) 등 다양한 구분자 처리
     if "~" in clean_str:
-        start_str, end_str = clean_str.split("~")
+        parts = clean_str.split("~")
+    elif "-" in clean_str:
+        parts = clean_str.split("-")
     else:
-        start_str = clean_str
-        end_str = clean_str
+        parts = [clean_str, clean_str]
         
-    start_str = start_str.strip()
-    end_str = end_str.strip()
+    if len(parts) >= 2:
+        start_str = parts[0].strip()
+        end_str = parts[1].strip()
+    else:
+        start_str = parts[0].strip()
+        end_str = parts[0].strip()
     
     try:
         start_date = datetime.strptime(f"{current_year}.{start_str}", "%Y.%m.%d").date()
@@ -55,84 +61,97 @@ def get_calendar_with_selenium():
         print(f"📡 접속 중: {TARGET_URL}")
         driver.get(TARGET_URL)
         
-        # 1. '연간 리스트(li)'가 로딩될 때까지 대기
+        # 1. 로딩 대기 (schedule-this-yearlist 안의 li가 생길 때까지)
         try:
-            print("⏳ 데이터 로딩 대기 중...")
             WebDriverWait(driver, 20).until(
-                # schedule-this-yearlist 안의 li 태그가 생길 때까지 기다림
                 EC.presence_of_element_located((By.CSS_SELECTOR, ".schedule-this-yearlist li"))
             )
-            print("✨ 데이터 로딩 완료!")
+            print("✨ 데이터 로딩 감지됨!")
         except:
-            print("⚠️ 대기 시간 초과! (스크롤 후 계속 진행)")
+            print("⚠️ 대기 시간 초과, 스크롤 후 텍스트 스캔 시도")
 
-        # 2. 확실한 로딩을 위해 스크롤 및 대기
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(3)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(1)
 
-        # 3. HTML 파싱 시작
         html_source = driver.page_source
         soup = BeautifulSoup(html_source, 'html.parser')
+        
+        for script in soup(["script", "style"]):
+            script.decompose()
+
+        # 텍스트 라인 추출 (공백 제거 후 리스트화)
+        all_lines = [line.strip() for line in soup.get_text(separator="\n", strip=True).splitlines() if line.strip()]
+        print(f"🔍 읽어온 유효 텍스트 라인 수: {len(all_lines)}줄")
         
         events = []
         now = datetime.now()
         current_year = now.year 
+        found_count = 0
         
-        # ▼▼▼ [핵심 변경] 텍스트가 아닌 '구조(li)'를 찾습니다 ▼▼▼
-        # 우리가 찾는 그 리스트 박스
-        target_box = soup.select_one(".schedule-this-yearlist")
-        
-        if not target_box:
-            # 혹시 클래스명이 다를 경우를 대비해 schedule-list-box 전체에서 찾기
-            list_items = soup.select(".schedule-list-box li")
-        else:
-            list_items = target_box.select("li")
+        # ▼▼▼ [최종 수정] 유연한 파싱 로직 ▼▼▼
+        i = 0
+        while i < len(all_lines):
+            line = all_lines[i]
             
-        print(f"🔍 발견된 일정 항목(li) 개수: {len(list_items)}개")
-
-        count = 0
-        for item in list_items:
-            # 하나의 li 안에 날짜와 제목이 다 들어있습니다.
-            # 예: <li> <strong>날짜</strong> <p>제목</p> </li>
-            
-            # 텍스트 추출 (태그 무시하고 공백으로 연결)
-            full_text = item.get_text(" ", strip=True)
-            
-            # 날짜 패턴 찾기 (숫자.숫자)
-            # 예: 02.02(월) ~ 02.27(금)
-            date_match = re.search(r'(\d{2}\.\d{2}\([가-힣]\)(?:\s*~\s*\d{2}\.\d{2}\([가-힣]\))?)', full_text)
+            # 날짜 패턴 찾기 (공백 포함 허용, 줄 중간에 있어도 찾음)
+            # 예: "02.02" 또는 "02.02(월)"
+            date_match = re.search(r'(\d{2}\.\d{2})', line)
             
             if date_match:
-                date_part = date_match.group(1)
-                # 전체 텍스트에서 날짜 부분을 지우면 나머지가 제목!
-                title_part = full_text.replace(date_part, "").strip()
+                # 더 정확한 날짜 구간 패턴 확인 (요일 포함)
+                # 예: 02.02(월) ~ 02.27(금)
+                full_date_match = re.search(r'(\d{2}\.\d{2}\([가-힣]\)(?:\s*[~-]\s*\d{2}\.\d{2}\([가-힣]\))?)', line)
                 
-                if len(title_part) < 2: continue
-
-                s_date, e_date = parse_date(date_part, current_year)
-                
-                if s_date and e_date:
-                    # 중복 방지
-                    is_duplicate = False
-                    for e in events:
-                        if e['title'] == title_part and e['start'] == s_date:
-                            is_duplicate = True
-                            break
+                if full_date_match:
+                    date_part = full_date_match.group(0) # 매칭된 날짜 문자열 전체
                     
-                    if not is_duplicate:
-                        events.append({
-                            "title": title_part,
-                            "start": s_date,
-                            "end": e_date
-                        })
-                        count += 1
+                    # 1. 같은 줄에 제목이 있는지 확인
+                    # 날짜 부분을 지웠을 때 남는 글자가 있으면 그게 제목!
+                    title_part = line.replace(date_part, "").strip()
+                    
+                    # 2. 같은 줄에 제목이 없다면(너무 짧다면), 다음 줄을 제목으로 가져옴
+                    if len(title_part) < 2 and (i + 1 < len(all_lines)):
+                        next_line = all_lines[i+1]
+                        # 다음 줄이 또 날짜가 아니라면 제목으로 인정
+                        if not re.search(r'\d{2}\.\d{2}', next_line):
+                            title_part = next_line
+                            i += 1 # 다음 줄은 제목으로 썼으니 건너뜀
+                    
+                    # 제목이 여전히 없거나 날짜라면 스킵
+                    if len(title_part) < 2 or re.search(r'\d{2}\.\d{2}', title_part):
+                        i += 1
+                        continue
+
+                    try:
+                        s_date, e_date = parse_date(date_part, current_year)
                         
-        print(f"✅ 최종 추출된 일정: {count}개")
+                        if s_date and e_date:
+                            # 중복 방지
+                            is_duplicate = False
+                            for e in events:
+                                if e['title'] == title_part and e['start'] == s_date:
+                                    is_duplicate = True
+                                    break
+                            
+                            if not is_duplicate:
+                                events.append({
+                                    "title": title_part,
+                                    "start": s_date,
+                                    "end": e_date
+                                })
+                                found_count += 1
+                    except Exception as e:
+                        print(f"파싱 에러({line}): {e}")
+            
+            i += 1
+            
+        print(f"✅ 최종 추출된 일정: {found_count}개")
         events.sort(key=lambda x: x['start'])
         return events
 
     except Exception as e:
-        print(f"❌ 오류 발생: {e}")
+        print(f"❌ 브라우저 에러: {e}")
         return []
     finally:
         driver.quit()
