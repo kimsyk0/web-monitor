@@ -15,10 +15,7 @@ TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 def parse_date(date_str, current_year):
-    """
-    '02.20(금)' 또는 '02.02(월) ~ 02.27(금)' 형태를 파싱
-    """
-    # 괄호와 요일 제거 -> '02.20' 또는 '02.02 ~ 02.27'
+    # 괄호와 요일 제거
     clean_str = re.sub(r'\([가-힣]\)', '', date_str)
     
     if "~" in clean_str:
@@ -42,72 +39,56 @@ def get_calendar_events():
     
     try:
         response = requests.get(TARGET_URL, headers=headers, verify=False, timeout=30)
-        # 인코딩 강제 설정 (한글 깨짐 방지)
-        response.encoding = 'utf-8' 
+        response.encoding = 'utf-8' # 한글 깨짐 방지
         soup = BeautifulSoup(response.text, 'html.parser')
         
         events = []
         now = datetime.now()
         current_year = now.year 
 
-        print(f"📡 웹페이지 접속 성공 (상태코드: {response.status_code})")
-
-        # 1차 시도: 개발자 도구상의 정확한 경로 (schedule-list-box > list > ul > li)
-        list_items = soup.select("div.schedule-list-box div.list ul li")
+        print(f"📡 페이지 접속 상태: {response.status_code}")
         
-        # 2차 시도: 못 찾았다면 조금 더 넓게 찾기 (schedule-list-box > ... > li)
-        if not list_items:
-            print("⚠️ 1차 탐색 실패, 2차 시도 중...")
-            list_items = soup.select("div.schedule-list-box li")
+        # ▼ [수정 핵심] 특정 div 이름을 찾지 않고, 페이지 내의 모든 'li' 태그를 가져옵니다.
+        all_list_items = soup.find_all("li")
+        print(f"🔍 페이지 내 전체 목록(li) 개수: {len(all_list_items)}개")
+        
+        count = 0
+        for item in all_list_items:
+            # 1. li 태그 안에 strong(날짜) 태그가 있는지 확인
+            date_tag = item.select_one("strong")
+            # 2. li 태그 안에 p(제목) 태그가 있는지 확인
+            title_tag = item.select_one("p")
             
-        # 3차 시도: 그래도 없다면 그냥 'list' 클래스 안의 li 찾기
-        if not list_items:
-            print("⚠️ 2차 탐색 실패, 3차 시도 중 (광범위 탐색)...")
-            list_items = soup.select("div.list ul li")
-
-        print(f"🔍 발견된 리스트 항목 수: {len(list_items)}개")
-
-        for item in list_items:
+            # 둘 중 하나라도 없으면 우리가 찾는 학사일정이 아님 -> 패스
+            if not date_tag or not title_tag:
+                continue
+            
+            date_text = date_tag.get_text(strip=True)
+            title_text = title_tag.get_text(strip=True)
+            
+            # 날짜 형식이 '00.00' 형태인지 간단히 체크 (엉뚱한 strong 태그 방지)
+            if not re.search(r'\d{2}\.\d{2}', date_text):
+                continue
+                
             try:
-                # strong 태그: 날짜 (예: 02.20(금))
-                date_tag = item.select_one("strong")
-                # p 태그: 행사명
-                title_tag = item.select_one("p")
-                
-                # 태그가 없으면 텍스트에서라도 찾기 시도 (예외 처리)
-                if not date_tag:
-                    continue
-                    
-                date_text = date_tag.get_text(strip=True)
-                # p 태그가 없으면 strong 태그 형제 텍스트나 span 등 다른거 찾기
-                if title_tag:
-                    title_text = title_tag.get_text(strip=True)
-                else:
-                    # p태그가 없다면 strong 태그를 제외한 나머지 텍스트 가져오기
-                    title_text = item.get_text(strip=True).replace(date_text, "").strip()
-                
-                if not date_text or not title_text:
-                    continue
-
-                # 날짜 파싱
                 s_date, e_date = parse_date(date_text, current_year)
-                
                 events.append({
                     "title": title_text,
                     "start": s_date,
                     "end": e_date
                 })
-            except Exception as e:
-                # 특정 항목 파싱 실패 시 로그만 찍고 계속 진행
-                # print(f"항목 파싱 에러: {e}")
+                count += 1
+            except Exception:
                 continue
 
+        print(f"✅ 학사일정 패턴 일치 항목: {count}개 찾음")
+        
         # 날짜순 정렬
         events.sort(key=lambda x: x['start'])
         return events
 
     except Exception as e:
-        print(f"❌ 크롤링 치명적 오류: {e}")
+        print(f"❌ 오류 발생: {e}")
         return []
 
 def send_telegram(msg):
@@ -124,23 +105,23 @@ def run():
     kst = pytz.timezone('Asia/Seoul')
     today = datetime.now(kst).date()
     
-    print(f"📅 오늘 날짜(시스템): {today}")
+    print(f"📅 기준 날짜: {today}")
     
     events = get_calendar_events()
     
     if not events:
-        print("❌ 일정을 가져오지 못했습니다. (목록이 비어있음)")
+        print("❌ 일정을 하나도 찾지 못했습니다.")
         return
 
     today_events = []
     upcoming_events = []
     
     for event in events:
-        # 1. 오늘 일정
+        # 오늘 일정
         if event['start'] <= today <= event['end']:
             today_events.append(event['title'])
         
-        # 2. 다가오는 일정 (오늘 < 시작일)
+        # 다가오는 일정 (오늘 이후)
         if event['start'] > today:
             d_day = (event['start'] - today).days
             if d_day <= 60:
@@ -151,7 +132,7 @@ def run():
                 })
 
     if not today_events and not upcoming_events:
-        print("📭 전송할 알림이 없습니다. (조건에 맞는 일정이 없음)")
+        print("📭 전송할 내용이 없습니다 (날짜 조건 불일치).")
         return
 
     msg_lines = []
@@ -168,7 +149,7 @@ def run():
             msg_lines.append(f"• D-{item['d_day']} {item['title']} ({item['date']})")
 
     final_msg = "\n".join(msg_lines)
-    print("✅ 메시지 생성 완료:")
+    print("메시지 미리보기:")
     print(final_msg)
     
     send_telegram(final_msg)
