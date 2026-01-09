@@ -1,12 +1,12 @@
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 import re
 import pytz
 from bs4 import BeautifulSoup
 import requests
 
-# ▼ 셀레니움 필수 라이브러리 ▼
+# ▼ 셀레니움 라이브러리 ▼
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -42,7 +42,7 @@ def get_calendar_with_selenium():
     chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # PC 화면 크기로 위장 (중요)
+    # PC 화면 크기 설정 (중요)
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
     
@@ -53,26 +53,33 @@ def get_calendar_with_selenium():
         print(f"📡 접속 중: {TARGET_URL}")
         driver.get(TARGET_URL)
         
-        # ✅ [핵심 수정] 박스 자체가 아니라, 박스 안의 '내용물(li 태그)'이 생길 때까지 기다림
-        # 이전에는 'schedule-this-yearlist'만 기다려서 빈 박스만 보고 통과했던 것임
+        # 1. 특정 클래스 이름(schedule-this-yearlist)이 나타날 때까지 대기
         try:
-            print("⏳ 데이터 로딩 대기 중 (최대 20초)...")
+            print("⏳ 'schedule-this-yearlist' 박스 로딩 대기 중...")
             WebDriverWait(driver, 20).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".schedule-this-yearlist li"))
+                EC.presence_of_element_located((By.CLASS_NAME, "schedule-this-yearlist"))
             )
-            print("✨ 연간 리스트 데이터(알맹이) 로딩 완료!")
+            print("✨ 박스 발견! 데이터가 채워지도록 3초간 대기합니다...")
         except:
-            print("⚠️ 데이터 로딩 시간 초과! (하지만 스크롤 후 다시 시도해봅니다)")
+            print("⚠️ 박스 발견 실패 (시간 초과). 그래도 스크롤 후 진행합니다.")
 
-        # 안전 장치: 강제 스크롤 + 3초 대기
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        # 2. [요청하신 부분] 3초 강제 대기 (데이터 렌더링 시간 확보)
         time.sleep(3)
 
-        # 페이지 소스 가져오기
+        # 3. 혹시 모르니 스크롤 한 번 내림
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(1)
+
+        # 4. 소스 가져오기
         html_source = driver.page_source
         soup = BeautifulSoup(html_source, 'html.parser')
         
-        # 텍스트 추출
+        # -------------------------------------------------------
+        # 여기서부터는 가장 강력한 '전체 텍스트 스캔' 방식을 사용합니다.
+        # 박스 안에 있든 밖에 있든 화면에 글자가 있으면 무조건 잡습니다.
+        # -------------------------------------------------------
+        
+        # 불필요한 태그 제거
         for script in soup(["script", "style"]):
             script.decompose()
 
@@ -88,9 +95,10 @@ def get_calendar_with_selenium():
             line = line.strip()
             if not line: continue
             
-            # 정규식 패턴 확인 (숫자.숫자)
+            # 날짜 패턴 (숫자.숫자) 확인
             match = re.search(r'(\d{2}\.\d{2})', line)
             if match:
+                # 요일 포함된 정확한 패턴 확인
                 date_match = re.search(r'(\d{2}\.\d{2}\([가-힣]\)(?:\s*~\s*\d{2}\.\d{2}\([가-힣]\))?)', line)
                 if date_match:
                     date_part = date_match.group(1)
@@ -101,6 +109,7 @@ def get_calendar_with_selenium():
                     try:
                         s_date, e_date = parse_date(date_part, current_year)
                         
+                        # 중복 방지
                         is_duplicate = False
                         for e in events:
                             if e['title'] == title_part and e['start'] == s_date:
