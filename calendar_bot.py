@@ -15,8 +15,8 @@ TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 def parse_date(date_str, current_year):
-    # 괄호와 요일 제거
-    clean_str = re.sub(r'\([가-힣]\)', '', date_str)
+    # 괄호와 요일 제거 및 공백 정리
+    clean_str = re.sub(r'\([가-힣]\)', '', date_str).strip()
     
     if "~" in clean_str:
         start_str, end_str = clean_str.split("~")
@@ -27,6 +27,7 @@ def parse_date(date_str, current_year):
     start_str = start_str.strip()
     end_str = end_str.strip()
     
+    # 날짜 변환
     start_date = datetime.strptime(f"{current_year}.{start_str}", "%Y.%m.%d").date()
     end_date = datetime.strptime(f"{current_year}.{end_str}", "%Y.%m.%d").date()
     
@@ -40,62 +41,74 @@ def get_calendar_events():
     try:
         response = requests.get(TARGET_URL, headers=headers, verify=False, timeout=30)
         response.encoding = 'utf-8' 
+        
         soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 스크립트와 스타일 태그 제거 (순수 텍스트만 남기기 위해)
+        for script in soup(["script", "style"]):
+            script.decompose()
+
+        # 웹페이지의 모든 텍스트를 줄 단위로 리스트화
+        all_lines = soup.get_text(separator="\n", strip=True).splitlines()
+        
+        print(f"📡 페이지 접속 상태: {response.status_code}")
+        print(f"🔍 전체 텍스트 라인 수: {len(all_lines)}줄")
         
         events = []
         now = datetime.now()
         current_year = now.year 
 
-        print(f"📡 페이지 접속 상태: {response.status_code}")
-        
-        # ▼ [핵심 수정] 구체적인 이름 대신, 공통된 이름 'schedule-list-box'를 가진 모든 박스를 찾습니다.
-        # (월별 보기 박스, 연간 보기 박스 등이 다 잡힙니다)
-        all_boxes = soup.select("div.schedule-list-box")
-        
-        print(f"🔍 발견된 스케줄 박스 개수: {len(all_boxes)}개")
-        
         found_count = 0
         
-        # 발견된 모든 박스를 하나씩 뜯어봅니다.
-        for i, box in enumerate(all_boxes):
-            list_items = box.select("li")
-            print(f"  ▶ [Box {i+1}] 내부 리스트 아이템 수: {len(list_items)}개")
+        for line in all_lines:
+            line = line.strip()
+            if not line: continue
             
-            for item in list_items:
-                # 텍스트 전체 가져오기
-                full_text = item.get_text(" ", strip=True)
+            # 정규식: "숫자.숫자" 패턴이 포함된 줄을 찾음
+            # 예: "02.02(월) ~ 02.27(금) 2026학년도 1학기 복학신청"
+            match = re.search(r'(\d{2}\.\d{2})', line)
+            
+            if match:
+                # 정확한 날짜 포맷이 있는지 2차 검증 (요일 포함)
+                date_match = re.search(r'(\d{2}\.\d{2}\([가-힣]\)(?:\s*~\s*\d{2}\.\d{2}\([가-힣]\))?)', line)
                 
-                # 디버깅용: 텍스트가 어떻게 생겼는지 확인
-                # print(f"    - 읽은 텍스트: {full_text}")
-                
-                # 날짜 패턴 찾기 (숫자.숫자 형태)
-                # 정규식을 좀 더 유연하게 (괄호나 띄어쓰기 변수 고려)
-                match = re.search(r'(\d{2}\.\d{2})', full_text)
-                
-                if match:
-                    # 정확한 날짜 구간 추출을 위해 다시 정규식 적용
-                    # 예: 02.02(월) ~ 02.27(금)
-                    full_date_match = re.search(r'(\d{2}\.\d{2}\([가-힣]\)(?:\s*~\s*\d{2}\.\d{2}\([가-힣]\))?)', full_text)
+                if date_match:
+                    date_part = date_match.group(1)
+                    # 날짜를 뺀 나머지를 제목으로
+                    title_part = line.replace(date_part, "").strip()
                     
-                    if full_date_match:
-                        date_part = full_date_match.group(1)
-                        title_part = full_text.replace(date_part, "").strip()
-                        
-                        # 제목이 너무 짧으면 패스
-                        if len(title_part) < 2: continue
+                    # 제목이 너무 짧으면 패스
+                    if len(title_part) < 2: continue
 
-                        try:
-                            s_date, e_date = parse_date(date_part, current_year)
+                    try:
+                        s_date, e_date = parse_date(date_part, current_year)
+                        
+                        # 중복 방지 (같은 내용이 여러 줄에 걸쳐 나올 수 있음)
+                        is_duplicate = False
+                        for e in events:
+                            if e['title'] == title_part and e['start'] == s_date:
+                                is_duplicate = True
+                                break
+                        
+                        if not is_duplicate:
                             events.append({
                                 "title": title_part,
                                 "start": s_date,
                                 "end": e_date
                             })
                             found_count += 1
-                        except Exception:
-                            continue
+                    except Exception:
+                        continue
 
         print(f"✅ 최종 추출된 학사일정: {found_count}개")
+        
+        # 디버깅: 만약 0개라면 봇이 본 텍스트 일부 출력
+        if found_count == 0:
+            print("--- [디버깅] 봇이 본 텍스트 상위 20줄 ---")
+            for l in all_lines[:20]:
+                print(l)
+            print("------------------------------------------")
+
         events.sort(key=lambda x: x['start'])
         return events
 
@@ -122,7 +135,7 @@ def run():
     events = get_calendar_events()
     
     if not events:
-        print("❌ 일정을 가져오지 못했습니다.")
+        print("❌ 일정을 가져오지 못했습니다. (텍스트 스캔 실패)")
         return
 
     today_events = []
