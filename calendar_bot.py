@@ -2,14 +2,21 @@ import os
 import time
 import requests
 from bs4 import BeautifulSoup
-from datetime import date
+from datetime import date, datetime, timedelta
+import re
+
+# ▼ 셀레니움 라이브러리 ▼
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # ▼ 설정 ▼
-TARGET_URL = "https://www.kw.ac.kr/ko/life/bachelor_calendar.jsp"
+CALENDAR_URL = "https://www.kw.ac.kr/ko/life/bachelor_calendar.jsp"
+MENU_URL = "https://www.kw.ac.kr/ko/life/facility11.jsp"
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
@@ -27,142 +34,190 @@ def send_telegram(message):
         except Exception as e:
             print(f"텔레그램 전송 실패: {e}")
 
-def get_page_source_with_selenium():
-    """
-    가상 브라우저를 띄워 3초 대기 후 소스를 가져옵니다.
-    """
+def get_day_kor(date_obj):
+    """ 날짜 객체를 받아서 한국어 요일(월~일) 반환 """
+    days = ["월", "화", "수", "목", "금", "토", "일"]
+    return days[date_obj.weekday()]
+
+# -----------------------------------------------------------
+# [기능 1] 학식 식단 가져오기 (실전 모드 복구)
+# -----------------------------------------------------------
+def get_cafeteria_menu():
+    try:
+        print(f"🍚 학식 정보 가져오는 중... ({MENU_URL})")
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        res = requests.get(MENU_URL, headers=headers, verify=False, timeout=10)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # [실전] 진짜 오늘 날짜 사용
+        today_str = date.today().strftime("%Y-%m-%d")
+        
+        # 1. 오늘 날짜에 해당하는 '요일 컬럼 인덱스' 찾기
+        table = soup.select_one("table.tbl-list")
+        if not table:
+            return "❌ 식단표를 찾을 수 없습니다."
+
+        headers = table.select("thead th")
+        target_idx = -1
+        
+        for idx, th in enumerate(headers):
+            if today_str in th.get_text():
+                target_idx = idx
+                break
+        
+        if target_idx == -1:
+            return "😴 오늘은 운영하지 않거나 식단 정보가 없어요. (주말/공휴일)"
+
+        # 2. 해당 요일의 메뉴 가져오기
+        menu_rows = table.select("tbody tr")
+        menu_list = []
+        
+        for row in menu_rows:
+            cols = row.select("td")
+            if len(cols) <= target_idx: continue
+            
+            category = cols[0].get_text(" ", strip=True).split("판매시간")[0].strip()
+            menu_content = cols[target_idx].get_text("\n", strip=True)
+            
+            if menu_content:
+                menu_list.append(f"🍱 *{category}*\n{menu_content}")
+
+        if not menu_list:
+            return "🍙 등록된 식단 내용이 없습니다."
+            
+        return "\n\n".join(menu_list)
+
+    except Exception as e:
+        print(f"❌ 학식 파싱 에러: {e}")
+        return "⚠️ 식단 정보를 불러오는데 실패했습니다."
+
+# -----------------------------------------------------------
+# [기능 2] 학사일정 가져오기 (실전 모드)
+# -----------------------------------------------------------
+def get_academic_calendar():
     chrome_options = Options()
-    chrome_options.add_argument("--headless") # 화면 없이 실행
+    chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=1920,1080")
     
-    # 크롬 드라이버 자동 설치 및 실행
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
     
-    try:
-        print(f"🌐 브라우저로 접속 시도: {TARGET_URL}")
-        driver.get(TARGET_URL)
-        
-        print("⏳ 페이지 로딩 대기 중 (3초)...")
-        time.sleep(3) # 요청하신 3초 대기
-        
-        # (선택) 확실하게 연도별 리스트가 떴는지 확인하고 싶다면 더 기다릴 수도 있음
-        # 하지만 일단 요청하신 대로 단순 대기만 수행
-        
-        page_source = driver.page_source
-        print("✅ 페이지 소스 확보 완료")
-        return page_source
-    except Exception as e:
-        print(f"❌ 브라우저 실행 중 오류: {e}")
-        return None
-    finally:
-        driver.quit()
-
-def parse_date_range(date_str, current_year):
-    # 날짜 문자열 정리 (예: "02.02(월)" -> "02.02")
-    clean_str = date_str
-    for char in "월화수목금토일() ":
-        clean_str = clean_str.replace(char, "")
+    events_text = []
     
-    parts = clean_str.split("~")
     try:
-        start_md = parts[0].strip().split(".")
-        start_date = date(current_year, int(start_md[0]), int(start_md[1]))
-        
-        if len(parts) > 1 and parts[1].strip():
-            end_md = parts[1].strip().split(".")
-            end_date = date(current_year, int(end_md[0]), int(end_md[1]))
-        else:
-            end_date = start_date
-        return start_date, end_date
-    except:
-        return None, None
-
-def run():
-    try:
-        # 1. 셀레니움으로 HTML 가져오기
-        html = get_page_source_with_selenium()
-        if not html:
-            print("HTML을 가져오지 못해 종료합니다.")
-            exit(1)
-
-        soup = BeautifulSoup(html, 'html.parser')
-        
-        # 2. 사진 속 구조대로 타겟팅
-        # JS가 로딩된 후라면 이 클래스가 존재할 확률이 높음
-        items = soup.select("div.schedule-list-box.schedule-this-yearlist ul li")
-        
-        print(f"🔍 발견된 일정 항목 수: {len(items)}개")
-        
-        # 만약 여전히 못 찾으면 넓게 검색 (보험용)
-        if len(items) == 0:
-            print("⚠️ 특정 클래스 검색 실패, 일반 리스트 검색 시도...")
-            items = soup.select("div.schedule-list-box ul li")
-
+        # [실전] 진짜 오늘 날짜 사용
         today = date.today()
-        # today = date(2026, 2, 20) # 테스트용
+        print(f"📅 학사일정 접속 중... (기준일: {today})")
+        
+        driver.get(CALENDAR_URL)
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".schedule-this-yearlist li"))
+            )
+        except:
+            pass 
+
+        time.sleep(1) 
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        all_list_items = soup.find_all("li")
         
         today_events = []
         upcoming_events = []
-
-        for item in items:
-            date_tag = item.select_one("strong")
-            title_tag = item.select_one("p")
-
-            if not date_tag or not title_tag:
-                continue
-
+        
+        for item in all_list_items:
+            date_tag = item.find("strong")
+            title_tag = item.find("p")
+            
+            if not date_tag or not title_tag: continue
+            
             raw_date = date_tag.get_text(strip=True)
             title = title_tag.get_text(strip=True)
             
-            start_date, end_date = parse_date_range(raw_date, today.year)
-            if not start_date: continue
+            dates = re.findall(r'(\d{2}\.\d{2})', raw_date)
+            if not dates: continue
+            
+            current_year = today.year
+            try:
+                s_date = datetime.strptime(f"{current_year}.{dates[0]}", "%Y.%m.%d").date()
+                if len(dates) > 1:
+                    e_date = datetime.strptime(f"{current_year}.{dates[1]}", "%Y.%m.%d").date()
+                else:
+                    e_date = s_date
+            except:
+                continue
 
-            # 오늘 일정
-            if start_date <= today <= end_date:
-                today_events.append(f"• {title}")
-            # 다가오는 일정
-            elif start_date > today:
-                d_day = (start_date - today).days
-                upcoming_events.append({
-                    "date": raw_date,
-                    "title": title,
-                    "d_day": d_day,
-                    "sort_date": start_date
-                })
+            # 1. 오늘의 일정
+            if s_date <= today <= e_date:
+                if s_date != e_date:
+                    end_str = e_date.strftime("%m.%d")
+                    end_day = get_day_kor(e_date)
+                    today_events.append(f"• {title} ~ {end_str}({end_day})")
+                else:
+                    today_events.append(f"• {title}")
+            
+            # 2. 다가오는 일정
+            elif s_date > today:
+                d_day = (s_date - today).days
+                if d_day <= 50: 
+                    upcoming_events.append({
+                        "date": raw_date,
+                        "title": title,
+                        "d_day": d_day
+                    })
 
-        # 정렬 및 추출
-        upcoming_events.sort(key=lambda x: x["sort_date"])
-        next_two = upcoming_events[:2]
-
-        # 메시지 작성
-        msg_lines = []
-        msg_lines.append(f"📅 *오늘의 학사일정* ({today.strftime('%Y-%m-%d')})\n")
-        
+        # 메시지 조립
         if today_events:
-            msg_lines.append("\n".join(today_events))
+            events_text.append(f"🔔 *오늘의 일정*\n" + "\n".join(today_events))
         else:
-            msg_lines.append("• 오늘 예정된 학사일정이 없습니다.")
+            events_text.append(f"🔔 *오늘의 일정*\n(일정이 없습니다)")
         
-        msg_lines.append("\n🔜 *다가오는 일정*")
-        
-        if next_two:
-            for event in next_two:
-                d_day_str = "D-DAY" if event['d_day'] == 0 else f"D-{event['d_day']}"
-                msg_lines.append(f"\n[{event['date']}] ({d_day_str})\n👉 {event['title']}")
-        else:
-             msg_lines.append("\n(예정된 일정이 없습니다)")
-
-        msg_lines.append(f"\n[🔗 전체 일정 보기]({TARGET_URL})")
-
-        final_msg = "\n".join(msg_lines)
-        print(final_msg)
-        send_telegram(final_msg)
-
+        # 다가오는 일정 (가장 가까운 것만, 괄호 제거)
+        if upcoming_events:
+            upcoming_events.sort(key=lambda x: x['d_day'])
+            min_d_day = upcoming_events[0]['d_day']
+            
+            nearest_events = [e for e in upcoming_events if e['d_day'] == min_d_day]
+            
+            temp = ["\n⏳ *다가오는 일정*"]
+            for e in nearest_events:
+                d_day_str = "D-DAY" if e['d_day'] == 0 else f"D-{e['d_day']}"
+                # [수정] 괄호 제거: ({e['date']}) -> {e['date']}
+                temp.append(f"[{d_day_str}] {e['title']} {e['date']}")
+            events_text.append("\n".join(temp))
+            
     except Exception as e:
-        print(f"❌ 실행 중 오류 발생: {e}")
-        exit(1)
+        print(f"❌ 학사일정 에러: {e}")
+        events_text.append("(학사일정 로딩 실패)")
+    finally:
+        driver.quit()
+        
+    return "\n".join(events_text) if events_text else "• 예정된 주요 학사일정이 없습니다."
+
+def run():
+    print("🚀 광운대 모닝 브리핑 실행 (실전 모드)")
+    
+    today_str = date.today().strftime('%Y-%m-%d (%a)')
+    
+    calendar_msg = get_academic_calendar()
+    menu_msg = get_cafeteria_menu()
+    
+    final_msg = f"☀️ *광운대 모닝 브리핑* {today_str}\n\n" \
+                f"{calendar_msg}\n\n" \
+                f"[👉 전체 일정 보기]({CALENDAR_URL})\n" \
+                f"────────────────\n\n" \
+                f"🥄 *오늘의 학식*\n\n" \
+                f"{menu_msg}\n\n" \
+                f"[👉 전체 식단 보기]({MENU_URL})"
+    
+    print("📨 텔레그램 전송 중...")
+    print(final_msg)
+    send_telegram(final_msg)
+    print("✅ 전송 완료")
 
 if __name__ == "__main__":
     run()
