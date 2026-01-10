@@ -206,7 +206,7 @@ def run():
     calendar_msg = get_academic_calendar()
     menu_msg = get_cafeteria_menu()
     
-    final_msg = f"☀️ *광운대 모닝 브리핑* {today_str}\n\n" \
+    final_msg = f"☀️ *모닝 브리핑* {today_str}\n\n" \
                 f"{calendar_msg}\n\n" \
                 f"[👉 전체 일정 보기]({CALENDAR_URL})\n" \
                 f"────────────────\n\n" \
