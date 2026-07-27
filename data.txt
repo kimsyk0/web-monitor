@@ -13,3 +13,4 @@
 [일반] [KW-VIP교과목] 2026학년도 2학기 KW-VIP(다학년 다학기 프로젝트) 교과목 모집(수강신청 안내)|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52915&tpage=1&searchKey=1&searchVal=&srCategoryId=
 [일반] 기간제 계약직원 채용 공고(공과대학 화학공학과)|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52930&tpage=1&searchKey=1&searchVal=&srCategoryId=
 [일반] 기간제 계약직원 채용 공고(공과대학 교학팀)|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52929&tpage=1&searchKey=1&searchVal=&srCategoryId=
+[일반] 2026-2 CBTL 적용 수업 개발 지원|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52943&tpage=1&searchKey=1&searchVal=&srCategoryId=
