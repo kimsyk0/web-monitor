@@ -6,11 +6,5 @@
 [외부] 하나 나라사랑카드 발급 안내|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=51568&tpage=1&searchKey=1&searchVal=&srCategoryId=
 [병무] 2026년 후반기 육군 학사장교 모집 안내|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52984&tpage=1&searchKey=1&searchVal=&srCategoryId=
 [일반] [KW-VIP교과목] 2026학년도 2학기 KW-VIP(다학년 다학기 프로젝트) 교과목 모집(수강신청 안내)|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52915&tpage=1&searchKey=1&searchVal=&srCategoryId=
-[국제학생] 2026-2학기 외국인 유학생 비자업무 온라인 대행접수 안내 2026-2 Agency Visa Related Services for International Student|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52982&tpage=1&searchKey=1&searchVal=&srCategoryId=
-[국제학생] [공지] 2026학년도 2학기 외국인 유학생 비자(VISA) 업무 안내|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52980&tpage=1&searchKey=1&searchVal=&srCategoryId=
-[일반] 〔현장실습〕2026학년도 2학기 장기 현장실습 지원 안내 (사전신고서류, 최종제출서류 포함)|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52979&tpage=1&searchKey=1&searchVal=&srCategoryId=
-[국제학생] 2026학년도 1학기 학부 외국인 유학생 졸업 축하 행사 안내|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52977&tpage=1&searchKey=1&searchVal=&srCategoryId=
-[학생] [재학생 법정의무교육] 2026 폭력예방교육 수강 안내 (모든 재학생 필수 이수 항목)|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52442&tpage=1&searchKey=1&searchVal=&srCategoryId=
-[국제학생] 2026년 한국유학 홍보 숏폼 영상 공모전|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52976&tpage=1&searchKey=1&searchVal=&srCategoryId=
-[학사] 2026학년도 2학기 학점교류 안내 (본교→타교)|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52871&tpage=1&searchKey=1&searchVal=&srCategoryId=
-[등록/장학] 2026학년도 가송재단 장학생 선발 안내|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52932&tpage=1&searchKey=1&searchVal=&srCategoryId=
+[일반] 2026년 1학기 예비군 전입신고 안내|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=44808&tpage=1&searchKey=1&searchVal=&srCategoryId=
+[외부] [교육부] 제14회 대한민국 인성시민교육대상 안내|https://www.kw.ac.kr/ko/life/notice.jsp?BoardMode=view&DUID=52986&tpage=1&searchKey=1&searchVal=&srCategoryId=
