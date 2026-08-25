@@ -94,6 +94,10 @@ def run():
             if a_tag:
                 raw_title = " ".join(a_tag.get_text().split())
                 clean_title = raw_title.replace("신규게시글", "").replace("Attachment", "").strip()
+
+                 exclude_keywords = ["채용"]
+                if any(keyword in clean_title for keyword in exclude_keywords):
+                    continue
                 
                 link = a_tag.get('href')
                 full_link = f"https://www.kw.ac.kr{link}" if link else TARGET_URL
